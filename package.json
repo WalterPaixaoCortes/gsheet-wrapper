@@ -1,7 +1,12 @@
 {
-  "name": "cli-script",
-  "version": "1.0.0",
-  "repository": "https://gitlab.com/wvcode/javascript/cli-script.git",
+  "name": "@wvcode/gsheet-wrapper",
+  "version": "0.5.1",
+  "main": "gsheet.js",
+  "repository": "https://gitlab.com/wvcode/modules/javascript/gsheet-wrapper.git",
   "author": "Walter Ritzel <wpcortes@gmail.com>",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "googleapis": "^73.0.0",
+    "readline-sync": "^1.4.10"
+  }
 }
