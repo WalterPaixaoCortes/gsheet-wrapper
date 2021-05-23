@@ -15,9 +15,9 @@ class gSheetWrapper {
   #valueInputOption = 'RAW'
 
   /**
-   * Retorna novo objeto de token para salvar
+   * Executa o processo de geração de um novo token de autenticação
    * @param {Object} oAuth2Client - objeto oAuth
-   * @returns true se um novo objeto Token criado
+   * @returns objeto oAuth atualizado com o token
    */
   async getNewToken(oAuth2Client) {
     let authUrl = oAuth2Client.generateAuthUrl({
@@ -30,18 +30,19 @@ class gSheetWrapper {
     if (!token) return false
     oAuth2Client.setCredentials(token)
     fs.writeFileSync(this.#TOKEN_PATH, JSON.stringify(token.tokens))
-    this.#SHEETS = google.sheets({ version: 'v4', auth: oAuth2Client })
-    return true
+    return oAuth2Client
   }
 
   /**
    * Função para autorizar o acesso ao google sheets
+   * A função tenta ler um arquivo de token existente
+   * Caso não encontre chama a rotina de geração de um novo token
    * @returns true se foi autorizado
    */
   async authorize() {
     let content = null
-    let tkFile = JSON.parse(fs.readFileSync(this.#CREDENTIAL_PATH, 'utf-8'))
-    let { client_secret, client_id, redirect_uris } = tkFile.installed
+    let cdFile = JSON.parse(fs.readFileSync(this.#CREDENTIAL_PATH, 'utf-8'))
+    let { client_secret, client_id, redirect_uris } = cdFile.installed
     let oAuth2Client = new google.auth.OAuth2(
       client_id,
       client_secret,
@@ -49,12 +50,18 @@ class gSheetWrapper {
     )
     try {
       content = fs.readFileSync(this.#TOKEN_PATH)
+    } catch (e) {
+      oAuth2Client = await this.getNewToken(oAuth2Client)
+      content = fs.readFileSync(this.#TOKEN_PATH)
+    }
+    try {
       oAuth2Client.setCredentials(JSON.parse(content))
       this.#SHEETS = google.sheets({ version: 'v4', auth: oAuth2Client })
       this.#DRIVE = google.drive({ version: 'v3', auth: oAuth2Client })
       return true
     } catch (e) {
-      if (!content) return await this.getNewToken(oAuth2Client)
+      console.log(e)
+      return false
     }
   }
 
@@ -85,10 +92,18 @@ class gSheetWrapper {
   }
 
   /**
-   * Retorna uma planilha
+   * Retorna se a operação de conexão foi bem sucedida
+   * @returns true se a conexão com o google foi feita com sucesso
+   */
+  isConnected() {
+    return this.#SHEETS && this.#DRIVE
+  }
+
+  /**
+   * Retorna uma aba (sheet) de uma planilha google, limitada pelo range
    * @param {String} spreadSheetId - o id da planilha google
-   * @param {String} range - o intervalo de células que serão lidas
-   * @returns Objeto representando uma planilha google
+   * @param {String} range - a combinação do nome da aba e o intervalo de células que serão lidas
+   * @returns Objeto representando o range da planilha google
    */
   async getSheet(spreadSheetId, range) {
     let rows = []
@@ -116,7 +131,7 @@ class gSheetWrapper {
   }
 
   /**
-   * Retorna as sheets dentro uma planilha google
+   * Retorna as abas (sheets) dentro uma planilha google
    * @param {String} spreadSheetId - o id da planilha google
    * @returns array de sheets de uma planilha
    */
@@ -132,7 +147,7 @@ class gSheetWrapper {
   }
 
   /**
-   * Retorna a lista de nomes de sheets de uma planilha google
+   * Retorna a lista de nomes das abas (sheets) de uma planilha google
    * @param {String} spreadSheetId - o id da planilha google
    * @returns um array contendo os nomes de sheets de uma planilha google
    */
@@ -148,7 +163,22 @@ class gSheetWrapper {
   }
 
   /**
-   * Cria uma planilha google com uma sheet
+   * Retorna uma lista de planilhas google da account que foi conectada
+   * @returns array de planilhas google
+   */
+  async getSpreadSheets() {
+    const filesList = await this.#DRIVE.files.list()
+    let returnValues = []
+    filesList.data.files.forEach(item => {
+      if (item.mimeType === 'application/vnd.google-apps.spreadsheet') {
+        returnValues.push(item)
+      }
+    })
+    return returnValues
+  }
+
+  /**
+   * Cria uma planilha google com uma aba (sheet)
    * @param {String} spreadSheetName - nome da planilha google
    * @param {String} sheetName - nome da sheet da planilha
    * @returns Objeto do tipo planilha do google
@@ -169,18 +199,41 @@ class gSheetWrapper {
   }
 
   /**
-   * Retorna uma lista de planilhas google da account que foi conectada
-   * @returns array de planilhas google
+   * Cria uma sheet dentro de uma planilha google
+   * @param {String} spreadSheetId - o id de uma planilha google
+   * @param {String} sheetName - o nome de uma sheet dentro de uma planilha
+   * @param {*} maxCols - o número de colunas da planilha
+   * @returns true se a operação foi bem sucedida
    */
-  async getSpreadSheets() {
-    const filesList = await this.#DRIVE.files.list()
-    let returnValues = []
-    filesList.data.files.forEach(item => {
-      if (item.mimeType === 'application/vnd.google-apps.spreadsheet') {
-        returnValues.push(item)
-      }
-    })
-    return returnValues
+  async createSheet(spreadSheetId, sheetName, maxCols) {
+    let max_row = 1
+
+    let create_request = {
+      spreadsheetId: spreadSheetId,
+      resource: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetName,
+                gridProperties: { rowCount: max_row, columnCount: maxCols },
+              },
+            },
+          },
+        ],
+      },
+    }
+
+    try {
+      const response = (
+        await this.#SHEETS.spreadsheets.batchUpdate(create_request)
+      ).data
+
+      return true
+    } catch (e) {
+      console.log(e)
+      return false
+    }
   }
 
   /**
@@ -223,44 +276,6 @@ class gSheetWrapper {
       ).data
       return true
     } else {
-      return false
-    }
-  }
-
-  /**
-   * Cria uma sheet dentro de uma planilha google
-   * @param {String} spreadSheetId - o id de uma planilha google
-   * @param {String} sheetName - o nome de uma sheet dentro de uma planilha
-   * @param {*} maxCols - o número de colunas da planilha
-   * @returns true se a operação foi bem sucedida
-   */
-  async createSheet(spreadSheetId, sheetName, maxCols) {
-    let max_row = 1
-
-    let create_request = {
-      spreadsheetId: spreadSheetId,
-      resource: {
-        requests: [
-          {
-            addSheet: {
-              properties: {
-                title: sheetName,
-                gridProperties: { rowCount: max_row, columnCount: maxCols },
-              },
-            },
-          },
-        ],
-      },
-    }
-
-    try {
-      const response = (
-        await this.#SHEETS.spreadsheets.batchUpdate(create_request)
-      ).data
-
-      return true
-    } catch (e) {
-      console.log(e)
       return false
     }
   }
