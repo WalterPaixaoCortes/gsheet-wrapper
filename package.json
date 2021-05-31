@@ -1,8 +1,8 @@
 {
   "name": "@wvcode/gsheet-wrapper",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "main": "gsheet.js",
-  "repository": "https://gitlab.com/wvcode/modules/javascript/gsheet-wrapper.git",
+  "repository": "https://github.com/wvcode/gsheet-wrapper.git",
   "author": "Walter Ritzel <wpcortes@gmail.com>",
   "license": "MIT",
   "dependencies": {
